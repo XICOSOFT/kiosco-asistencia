@@ -1,8 +1,8 @@
-const CACHE_NAME = "kiosco-v7-qr-circle";
+const CACHE_NAME = "kiosco-v10-prod";
 const ASSETS = [
   "./",
   "./index.html",
-  "./app.js?v=2027",
+  "./app.js?v=2027.10",
   "./manifest.json",
   "https://cdn.tailwindcss.com",
   "https://unpkg.com/lucide@latest",
@@ -31,7 +31,6 @@ self.addEventListener("activate", (e) => {
 });
 
 self.addEventListener("fetch", (e) => {
-  // Jamás interceptar peticiones POST ni llamadas hacia Google Apps Script para evitar duplicados
   if (e.request.method !== "GET" || e.request.url.includes("script.google.com")) {
     return;
   }
