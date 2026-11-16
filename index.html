@@ -69,13 +69,18 @@
   <div id="view-kiosk" class="bg-slate-950 text-white w-screen h-[100dvh] fixed inset-0 z-40 hidden flex-col justify-between p-6 md:p-10 select-none overflow-hidden">
     
     <!-- Barra Superior del Kiosco -->
-    <div class="flex justify-between items-center w-full shrink-0">
+    <div class="flex justify-between items-center w-full shrink-0 gap-2">
       <button onclick="showView('view-menu')" class="text-slate-400 hover:text-white bg-slate-800/90 hover:bg-slate-700 p-3 rounded-2xl border border-slate-700 transition shadow-lg">
         <i data-lucide="arrow-left" class="w-6 h-6"></i>
       </button>
 
-      <div id="kiosk-sucursal-badge" class="text-xs sm:text-sm md:text-base font-bold text-emerald-400 bg-emerald-950/90 border border-emerald-600/60 px-4 py-1.5 rounded-full shadow-lg">
-        📍 Sucursal Activa
+      <div class="flex items-center gap-2 flex-wrap justify-center">
+        <div id="kiosk-sucursal-badge" class="text-xs sm:text-sm md:text-base font-bold text-emerald-400 bg-emerald-950/90 border border-emerald-600/60 px-4 py-1.5 rounded-full shadow-lg">
+          📍 Sucursal Activa
+        </div>
+        <div id="kiosk-net-badge" class="text-xs font-extrabold px-3 py-1.5 rounded-full bg-emerald-900/80 text-emerald-300 border border-emerald-700 shadow">
+          🟢 Online
+        </div>
       </div>
 
       <button onclick="toggleFullScreenKiosk()" class="text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-700 px-3.5 py-2.5 rounded-2xl border border-slate-700 flex items-center gap-2 text-xs md:text-sm font-bold transition shadow-lg" title="Expandir a Pantalla Completa">
@@ -198,7 +203,7 @@
       </div>
     </div>
     
-    <!-- TAB 1: Pre-Nómina + KPIs Ejecutivos -->
+    <!-- TAB 1: Pre-Nómina + KPIs Ejecutivos + Día Festivo Global -->
     <div id="tab-prenomina" class="flex-1 flex flex-col min-h-0 overflow-hidden"> 
       <div class="grid grid-cols-4 gap-2 px-3 pt-2.5 pb-1 bg-gray-50 shrink-0 text-center">
         <div class="bg-white border rounded-lg p-2 shadow-sm">
@@ -219,7 +224,7 @@
         </div>
       </div>
 
-      <!-- Barra de Filtros Compacta -->
+      <!-- Barra de Filtros y Acciones Masivas -->
       <div class="p-2.5 bg-gray-50 border-b flex gap-2 flex-wrap items-end shrink-0 text-xs">
         <div>
           <label class="block font-semibold text-gray-600">Inicio</label>
@@ -237,11 +242,14 @@
         </div>
         <div class="flex flex-wrap gap-1.5">
           <button onclick="loadReports()" class="bg-blue-600 text-white px-3 py-1 rounded font-bold hover:bg-blue-700">Consultar</button>
+          <button id="btn-festivo-global" onclick="abrirModalFestivoGlobal()" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-2.5 py-1 rounded font-extrabold flex items-center gap-1 shadow-sm" title="Marcar día festivo oficial para toda la plantilla">
+            <i data-lucide="calendar-heart" class="w-3.5 h-3.5"></i> Día Festivo Global
+          </button>
           <button id="btn-export" onclick="exportToCSV()" class="bg-emerald-600 text-white px-2.5 py-1 rounded font-bold hover:bg-emerald-700 hidden">CSV Completo</button>
           <button id="btn-export-nomina" onclick="exportarLayoutNomina('CONTPAQI')" class="bg-indigo-600 text-white px-2.5 py-1 rounded font-bold hover:bg-indigo-700">CONTPAQi</button>
           <button id="btn-export-aspel" onclick="exportarLayoutNomina('ASPEL')" class="bg-purple-600 text-white px-2.5 py-1 rounded font-bold hover:bg-purple-700">Aspel NOI</button>
         </div>
-        <div class="ml-auto w-full md:w-52">
+        <div class="ml-auto w-full md:w-48">
           <div class="relative">
             <i data-lucide="search" class="absolute left-2 top-1.5 w-3.5 h-3.5 text-gray-400"></i>
             <input type="text" id="search-report" oninput="filterReport()" placeholder="Buscar nombre, RFC, PIN..." class="border rounded pl-7 pr-2 py-1 w-full bg-white outline-none focus:ring-1 focus:ring-blue-400">
@@ -307,7 +315,7 @@
       <div class="p-3 bg-gray-50 border-b flex justify-between items-center shrink-0 text-xs">
         <div>
           <h3 class="font-bold text-sm text-gray-800">Supervisores de Obra y Administradores</h3>
-          <p class="text-[11px] text-gray-500">Crea accesos restringidos para residentes de obra o encargados de sucursal.</p>
+          <p class="text-[11px] text-gray-500">Asigna accesos por obra específica y permisos granulares.</p>
         </div>
         <button onclick="abrirModalNuevoUsuario()" class="bg-blue-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-blue-700">+ Nuevo Supervisor</button>
       </div>
@@ -316,7 +324,7 @@
           <thead class="sticky top-0 z-20 bg-gray-200 shadow-sm">
             <tr>
               <th class="p-3">Usuario / Estatus</th>
-              <th class="p-3">Rol</th>
+              <th class="p-3">Rol / Obra Asignada</th>
               <th class="p-3">Permisos Asignados</th>
               <th class="p-3 text-right">Acciones</th>
             </tr>
@@ -437,6 +445,40 @@
     </div>
   </div>
 
+  <!-- MODAL: APLICAR DÍA FESTIVO / DESCANSO GLOBAL MASIVO -->
+  <div id="modal-festivo-global" class="fixed inset-0 bg-black/65 z-50 hidden flex justify-center items-center p-4">
+    <div class="bg-white p-6 rounded-xl w-full max-w-md shadow-2xl">
+      <h3 class="font-bold text-lg mb-1 text-gray-900 flex items-center gap-2"><i data-lucide="calendar-heart" class="w-5 h-5 text-amber-500"></i> Aplicar Día Festivo Global</h3>
+      <p class="text-xs text-gray-500 mb-4">Justifica masivamente la fecha seleccionada sin afectar a los colaboradores que sí asistieron a laborar ese día.</p>
+      
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="font-bold text-gray-700">Fecha a Aplicar *</label>
+          <input type="date" id="festivo-fecha" class="w-full border p-2.5 rounded mt-1 font-bold bg-gray-50">
+        </div>
+        <div>
+          <label class="font-bold text-gray-700">Alcance (Sucursal / Obra)</label>
+          <select id="festivo-sucursal" class="w-full border p-2.5 rounded mt-1 font-semibold bg-white">
+            <option value="TODAS">Toda la Empresa (Todas las obras)</option>
+          </select>
+        </div>
+        <div>
+          <label class="font-bold text-gray-700">Motivo Oficial en Pre-Nómina</label>
+          <select id="festivo-motivo" class="w-full border p-2.5 rounded mt-1 font-bold bg-gray-50">
+            <option value="DIA_FESTIVO_OFICIAL">🇲🇽 Día Festivo Oficial (Art. 74 LFT)</option>
+            <option value="DESCANSO">🏠 Día de Descanso / Puente Autorizado</option>
+            <option value="SUSPENSION_OBRA">🚧 Suspensión de Labores / Clima</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 mt-5">
+        <button onclick="document.getElementById('modal-festivo-global').classList.add('hidden')" class="px-4 py-2 bg-gray-200 rounded font-bold text-xs">Cancelar</button>
+        <button onclick="ejecutarFestivoGlobal()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded font-extrabold text-xs">Aplicar a Plantilla</button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL: ALTA Y EDICIÓN DEL EXPEDIENTE DE EMPLEADO -->
   <div id="modal-empleado" class="fixed inset-0 bg-black/60 z-50 hidden flex justify-center items-center p-4">
     <div class="bg-white p-6 rounded-xl w-full max-w-md shadow-2xl max-h-[94dvh] overflow-y-auto">
@@ -481,14 +523,14 @@
     </div>
   </div>
 
-  <!-- MODAL: ALTA Y EDICIÓN DE SUPERVISORES CON PERMISOS GRANULARES -->
+  <!-- MODAL: ALTA Y EDICIÓN DE SUPERVISORES CON OBRA ASIGNADA -->
   <div id="modal-usuario" class="fixed inset-0 bg-black/60 z-50 hidden flex justify-center items-center p-4">
     <div class="bg-white p-6 rounded-xl w-full max-w-md shadow-2xl max-h-[92dvh] overflow-y-auto">
       <h3 id="modal-usr-titulo" class="font-bold text-lg mb-3 text-gray-800">Alta de Supervisor</h3>
       <input type="hidden" id="usr-edit-id">
       <label class="text-xs font-bold text-gray-600">Nombre del Supervisor / Usuario *</label>
       <input type="text" id="new-usr-nombre" placeholder="Ej. Ing. Residente Obra Norte" class="w-full border p-2 mb-2 rounded text-sm mt-0.5">
-      <div class="grid grid-cols-2 gap-2 mb-3">
+      <div class="grid grid-cols-2 gap-2 mb-2">
         <div>
           <label class="text-xs font-bold text-gray-600">PIN de Acceso *</label>
           <input type="number" id="new-usr-pin" placeholder="Ej. 4580" class="w-full border p-2 rounded text-sm font-bold mt-0.5">
@@ -501,10 +543,14 @@
           </select>
         </div>
       </div>
+      <div class="mb-3">
+        <label class="text-xs font-bold text-gray-600">Obra / Sucursal Asignada (Filtro automático)</label>
+        <input type="text" id="usr-sucursal" list="lista-sucursales" placeholder="Dejar vacío o escribir TODAS" class="w-full border p-2 rounded text-xs mt-0.5">
+      </div>
       <p class="text-xs font-bold text-gray-600 uppercase mb-2">Permisos Granulares Autorizados:</p>
       <div class="space-y-1.5 bg-gray-50 p-3 rounded-lg border mb-4 text-xs">
         <label class="flex items-center gap-2"><input type="checkbox" class="chk-perm-usr w-4 h-4" value="ver_reportes" checked><span>Ver reportes de pre-nómina y asistencia</span></label>
-        <label class="flex items-center gap-2"><input type="checkbox" class="chk-perm-usr w-4 h-4" value="justificar_incidencias" checked><span>Justificar faltas e incidencias (IMSS, Permisos)</span></label>
+        <label class="flex items-center gap-2"><input type="checkbox" class="chk-perm-usr w-4 h-4" value="justificar_incidencias" checked><span>Justificar faltas e incidencias (IMSS, Festivos)</span></label>
         <label class="flex items-center gap-2"><input type="checkbox" class="chk-perm-usr w-4 h-4" value="gestionar_empleados"><span>Dar de alta y editar expedientes de empleados</span></label>
         <label class="flex items-center gap-2"><input type="checkbox" class="chk-perm-usr w-4 h-4" value="enrolar_rostros"><span>Enrolar rostros biométricos</span></label>
         <label class="flex items-center gap-2"><input type="checkbox" class="chk-perm-usr w-4 h-4" value="gestionar_turnos"><span>Gestionar horarios y turnos</span></label>
@@ -672,13 +718,14 @@
     </div>
   </div>
 
-  <!-- MODAL: JUSTIFICAR INCIDENCIA -->
+  <!-- MODAL: JUSTIFICAR INCIDENCIA INDIVIDUAL -->
   <div id="modal-incidencia" class="fixed inset-0 bg-black/60 z-50 hidden flex justify-center items-center p-4">
     <div class="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
       <h3 class="font-bold text-base mb-1">Justificar Ausencia / Incidencia</h3>
       <p id="inc-emp-info" class="text-xs text-gray-500 font-semibold mb-3"></p>
       <label class="text-xs font-bold text-gray-600">Tipo de Incidencia Oficial (LFT):</label>
       <select id="inc-motivo" class="w-full border p-2.5 rounded mt-1 mb-4 text-sm font-bold bg-gray-50">
+        <option value="DIA_FESTIVO_OFICIAL">🇲🇽 Día Festivo Oficial</option>
         <option value="VACACIONES">🏖️ Vacaciones Autorizadas</option>
         <option value="INCAPACIDAD_IMSS">🏥 Incapacidad IMSS</option>
         <option value="PERMISO_GOCE">✅ Permiso con Goce de Sueldo</option>
@@ -778,6 +825,6 @@
   </div>
 
   <div id="toast-container" class="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2"></div>
-  <script src="app.js?v=2027.9"></script>
+  <script src="app.js?v=2027.10"></script>
 </body>
 </html>
