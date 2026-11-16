@@ -44,11 +44,24 @@ let currentLayoutSistema = null;
 let currentExportSistema = null;
 let currentMuestraLayoutData = null;
 
-// Reloj en vivo para el Kiosco
+// Reloj en vivo y estado de red en tiempo real para el Kiosco
 setInterval(() => {
   const clk = document.getElementById('live-clock');
   if (clk) clk.innerText = new Date().toLocaleTimeString('es-MX', { hour12: false });
+  actualizarBadgeRedKiosco();
 }, 1000);
+
+function actualizarBadgeRedKiosco() {
+  const netBadge = document.getElementById('kiosk-net-badge');
+  if (!netBadge) return;
+  if (navigator.onLine) {
+    netBadge.innerText = "🟢 Online";
+    netBadge.className = "text-xs font-extrabold px-3 py-1.5 rounded-full bg-emerald-900/80 text-emerald-300 border border-emerald-700 shadow";
+  } else {
+    netBadge.innerText = "🟠 Offline";
+    netBadge.className = "text-xs font-extrabold px-3 py-1.5 rounded-full bg-amber-900/90 text-amber-300 border border-amber-500 shadow";
+  }
+}
 
 // Síntesis de Voz (Audio Feedback)
 function hablarKiosco(texto) {
@@ -110,7 +123,6 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-// Activa o desactiva el modo Pantalla Completa nativo en Android / Tablet
 function toggleFullScreenKiosk() {
   if (!document.fullscreenElement) {
     document.documentElement.requestFullscreen().catch(() => {});
@@ -159,7 +171,6 @@ function showView(viewId) {
   const target = document.getElementById(viewId);
   if (target) {
     target.classList.remove('hidden');
-    // CRÍTICO: Activar flex en Kiosco, Dashboard y SuperAdmin para ocupar el 100% de la Tablet
     if (viewId === 'view-kiosk' || viewId === 'view-dashboard' || viewId === 'view-superadmin') {
       target.classList.add('flex');
     }
@@ -168,6 +179,7 @@ function showView(viewId) {
   if (viewId === 'view-kiosk') { 
     initGPS(); 
     updateOfflineUI(); 
+    actualizarBadgeRedKiosco();
     aplicarModulosKiosco(); 
     initKioskAI(); 
     startCamera(); 
@@ -393,7 +405,7 @@ function detenerEscaneoQR() {
 }
 
 // ==========================================
-// SESIÓN DE ADMINISTRADORES, SUPERVISORES Y PERMISOS
+// SESIÓN DE ADMINISTRADORES, SUPERVISORES POR OBRA Y PERMISOS
 // ==========================================
 async function loginAdmin() {
   const pin = document.getElementById('admin-pin').value;
@@ -409,6 +421,7 @@ async function loginAdmin() {
           id: (res.usuario && res.usuario.id) || 'MASTER',
           nombre: (res.usuario && res.usuario.nombre) || 'SUPER ADMIN',
           rol: 'SUPER_ADMIN',
+          sucursalAsignada: 'TODAS',
           permisos: ['*']
         };
         loadEmpresas(); 
@@ -421,10 +434,14 @@ async function loginAdmin() {
           id: (res.usuario && res.usuario.id) || 'ADMIN',
           nombre: (res.usuario && res.usuario.nombre) || 'RH',
           rol: res.role || 'ADMIN',
+          sucursalAsignada: (res.usuario && res.usuario.sucursalAsignada) || 'TODAS',
           permisos: res.permisos || ['*']
         };
         
-        document.getElementById('empresa-name').innerText = `RH: ${currentEmpresa.nombre} (${currentUser.rol})`;
+        const badgeObra = (currentUser.sucursalAsignada && currentUser.sucursalAsignada !== 'TODAS')
+          ? ` — Obra: ${currentUser.sucursalAsignada}`
+          : '';
+        document.getElementById('empresa-name').innerText = `RH: ${currentEmpresa.nombre} (${currentUser.rol}${badgeObra})`;
         document.getElementById('empresa-modulos-badges').innerText = `Módulos LFT 2027: ${currentEmpresa.modulos || 'COMPLETO'}`;
         const hoy = new Date().toISOString().split('T')[0]; 
         document.getElementById('date-start').value = hoy; 
@@ -457,6 +474,9 @@ function aplicarPermisosUI() {
   const tabConfig = document.getElementById('tab-btn-config');
   if (tabConfig) tabConfig.style.display = (puede('gestionar_turnos') || puede('config_legal') || puede('gestionar_sucursales')) ? 'inline-block' : 'none';
   
+  const btnFestivo = document.getElementById('btn-festivo-global');
+  if (btnFestivo) btnFestivo.style.display = puede('justificar_incidencias') ? 'inline-flex' : 'none';
+
   const btnNomina = document.getElementById('btn-export-nomina');
   if (btnNomina) btnNomina.style.display = puede('exportar_nomina') ? 'inline-flex' : 'none';
   
@@ -505,7 +525,7 @@ function switchRHTab(tabId) {
 }
 
 // ==========================================
-// PRE-NÓMINA, 4 MOMENTOS LFT, MAPA GPS E INCIDENCIAS
+// PRE-NÓMINA, DÍA FESTIVO GLOBAL, MAPA GPS E INCIDENCIAS
 // ==========================================
 function actualizarKPIs(data) {
   let asist = 0, ret = 0, faltas = 0, extras = 0;
@@ -547,7 +567,7 @@ function renderReportTable(data) {
 
       let badgeHorario = '';
       if (row.incidencia) {
-        badgeHorario = `<span class="bg-amber-100 text-amber-800 border border-amber-300 px-2 py-0.5 rounded font-bold text-[11px]">${row.incidencia}</span>`;
+        badgeHorario = `<span class="bg-amber-100 text-amber-800 border border-amber-300 px-2 py-0.5 rounded font-bold text-[11px]">${escapeHtml(row.incidencia)}</span>`;
       } else if (row.entrada === '--') {
         badgeHorario = `<span class="bg-red-500 text-white px-2 py-0.5 rounded font-bold text-[11px]">FALTA</span>`;
       } else {
@@ -614,6 +634,64 @@ async function guardarIncidencia() {
   toggleLoader(false);
 }
 
+// ==========================================
+// DÍA FESTIVO GLOBAL MASIVO (UI + EJECUCIÓN)
+// ==========================================
+function abrirModalFestivoGlobal() {
+  if (!puede('justificar_incidencias')) return showToast('Sin permiso', 'error');
+  const fechaInicio = document.getElementById('date-start').value || new Date().toISOString().split('T')[0];
+  document.getElementById('festivo-fecha').value = fechaInicio;
+
+  const selFestivoSuc = document.getElementById('festivo-sucursal');
+  const sucAsignada = (currentUser && currentUser.sucursalAsignada && currentUser.sucursalAsignada !== 'TODAS')
+    ? currentUser.sucursalAsignada
+    : null;
+
+  if (sucAsignada) {
+    selFestivoSuc.innerHTML = `<option value="${escapeHtml(sucAsignada)}">${escapeHtml(sucAsignada)} (Obra Asignada)</option>`;
+    selFestivoSuc.disabled = true;
+  } else {
+    const sucs = [...new Set([
+      ...currentEmpleadosData.map(e => e.sucursal || 'Matriz'),
+      ...currentReportData.map(r => r.sucursal || 'Matriz')
+    ])].sort();
+    selFestivoSuc.innerHTML = '<option value="TODAS">Toda la Empresa (Todas las obras)</option>' +
+      sucs.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+    selFestivoSuc.disabled = false;
+  }
+
+  document.getElementById('modal-festivo-global').classList.remove('hidden');
+  lucide.createIcons();
+}
+
+async function ejecutarFestivoGlobal() {
+  const fecha = document.getElementById('festivo-fecha').value;
+  const sucursal = document.getElementById('festivo-sucursal').value;
+  const motivo = document.getElementById('festivo-motivo').value;
+  if (!fecha) return showToast('Selecciona la fecha del día festivo', 'error');
+
+  toggleLoader(true, 'Aplicando día festivo masivo a la plantilla...');
+  try {
+    const res = await runServer('apiAplicarFestivoGlobal', {
+      empresaId: currentEmpresa.empresaId,
+      fecha,
+      sucursal,
+      motivo,
+      usuarioId: currentUser ? currentUser.id : 'RH'
+    });
+    if (res.status === 'success') {
+      showToast(res.message, 'success');
+      document.getElementById('modal-festivo-global').classList.add('hidden');
+      loadReports();
+    } else {
+      showToast(res.message, 'error');
+    }
+  } catch (e) {
+    showToast('Error al aplicar día festivo', 'error');
+  }
+  toggleLoader(false);
+}
+
 function filterReport() {
   const query = (document.getElementById('search-report').value || '').toLowerCase();
   const suc = document.getElementById('filter-sucursal-report').value;
@@ -632,9 +710,18 @@ async function loadReports() {
   if (!currentEmpresa) return;
   const s = document.getElementById('date-start').value, e = document.getElementById('date-end').value;
   if (!s || !e) return; 
+  const sucFiltro = (currentUser && currentUser.sucursalAsignada && currentUser.sucursalAsignada !== 'TODAS')
+    ? currentUser.sucursalAsignada
+    : 'TODAS';
+
   toggleLoader(true, 'Calculando Pre-Nómina LFT 2027...');
   try {
-    const res = await runServer('apiGetReports', { empresaId: currentEmpresa.empresaId, fechaInicio: s, fechaFin: e });
+    const res = await runServer('apiGetReports', {
+      empresaId: currentEmpresa.empresaId,
+      fechaInicio: s,
+      fechaFin: e,
+      sucursalFiltro: sucFiltro
+    });
     currentReportData = res.data || [];
     actualizarSelectoresSucursales(currentReportData);
     filterReport();
@@ -708,13 +795,34 @@ async function exportarLayoutNomina(formato) {
 // COLABORADORES: EDICIÓN, RFC/CURP, ACUERDO LFT 2027 Y GAFETES
 // ==========================================
 function actualizarSelectoresSucursales(listaItems) {
+  const sucAsignada = (currentUser && currentUser.sucursalAsignada && currentUser.sucursalAsignada !== 'TODAS')
+    ? currentUser.sucursalAsignada
+    : null;
+
   const sucursales = [...new Set(listaItems.map(i => i.sucursal || 'Matriz'))].sort();
   const selReport = document.getElementById('filter-sucursal-report');
   const selEmp = document.getElementById('filter-sucursal-emp');
   const dataList = document.getElementById('lista-sucursales');
   
-  if (selReport) selReport.innerHTML = '<option value="TODAS">Todas</option>' + sucursales.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
-  if (selEmp) selEmp.innerHTML = '<option value="TODAS">Todas</option>' + sucursales.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+  if (sucAsignada) {
+    if (selReport) {
+      selReport.innerHTML = `<option value="${escapeHtml(sucAsignada)}">${escapeHtml(sucAsignada)}</option>`;
+      selReport.disabled = true;
+    }
+    if (selEmp) {
+      selEmp.innerHTML = `<option value="${escapeHtml(sucAsignada)}">${escapeHtml(sucAsignada)}</option>`;
+      selEmp.disabled = true;
+    }
+  } else {
+    if (selReport) {
+      selReport.innerHTML = '<option value="TODAS">Todas</option>' + sucursales.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+      selReport.disabled = false;
+    }
+    if (selEmp) {
+      selEmp.innerHTML = '<option value="TODAS">Todas</option>' + sucursales.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+      selEmp.disabled = false;
+    }
+  }
   if (dataList) dataList.innerHTML = sucursales.map(s => `<option value="${escapeHtml(s)}"></option>`).join('');
 }
 
@@ -723,7 +831,17 @@ async function loadEmpleados() {
   toggleLoader(true, 'Cargando catálogo...');
   try {
     const res = await runServer('apiGetEmpleados', currentEmpresa.empresaId);
-    currentEmpleadosData = res.data || [];
+    let rawData = res.data || [];
+
+    const sucAsignada = (currentUser && currentUser.sucursalAsignada && currentUser.sucursalAsignada !== 'TODAS')
+      ? currentUser.sucursalAsignada.toLowerCase()
+      : null;
+
+    if (sucAsignada) {
+      rawData = rawData.filter(e => (e.sucursal || 'Matriz').toLowerCase() === sucAsignada);
+    }
+
+    currentEmpleadosData = rawData;
     
     empleadosPinMap = {};
     currentEmpleadosData.forEach(e => {
@@ -783,7 +901,8 @@ function abrirModalNuevoEmpleado() {
   document.getElementById('new-emp-rfc').value = '';
   document.getElementById('new-emp-curp').value = '';
   document.getElementById('new-emp-pin').value = '';
-  document.getElementById('new-emp-sucursal').value = '';
+  const sucAsignada = (currentUser && currentUser.sucursalAsignada && currentUser.sucursalAsignada !== 'TODAS') ? currentUser.sucursalAsignada : '';
+  document.getElementById('new-emp-sucursal').value = sucAsignada;
   document.getElementById('modal-empleado').classList.remove('hidden');
 }
 
@@ -896,10 +1015,13 @@ async function loadUsuarios() {
     document.getElementById('table-usuarios').innerHTML = currentUsuariosList.length ? currentUsuariosList.map(u => `
       <tr class="border-b hover:bg-gray-50">
         <td class="p-3 font-bold">${escapeHtml(u.nombre)}<br><span class="text-[10px] font-extrabold ${u.estatus === 'ACTIVO' ? 'text-green-600' : 'text-red-500'}">${u.estatus}</span></td>
-        <td class="p-3"><span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded text-[11px] font-bold">${u.rol}</span></td>
+        <td class="p-3">
+          <span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded text-[11px] font-bold">${u.rol}</span>
+          <div class="text-[10px] text-gray-500 font-semibold mt-0.5">📍 Obra: ${escapeHtml(u.sucursalAsignada || 'TODAS')}</div>
+        </td>
         <td class="p-3 text-[11px] text-gray-600">${(u.permisos || []).join(', ')}</td>
         <td class="p-3 text-right space-x-1">
-          <button onclick="abrirModalEditarPermisos('${u.id}')" class="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 px-2.5 py-1 rounded font-bold text-xs">Permisos</button>
+          <button onclick="abrirModalEditarPermisos('${u.id}')" class="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 px-2.5 py-1 rounded font-bold text-xs">Editar / Permisos</button>
           <button onclick="toggleUsuarioStatus('${u.id}', '${u.estatus === 'ACTIVO' ? 'INACTIVO' : 'ACTIVO'}')" class="bg-gray-200 hover:bg-gray-300 px-2.5 py-1 rounded font-bold text-xs">${u.estatus === 'ACTIVO' ? 'Suspender' : 'Activar'}</button>
         </td>
       </tr>
@@ -914,7 +1036,8 @@ function abrirModalNuevoUsuario() {
   document.getElementById('modal-usr-titulo').innerText = 'Alta de Supervisor de Obra / Sucursal';
   document.getElementById('new-usr-nombre').value = '';
   document.getElementById('new-usr-pin').value = '';
-  document.getElementById('new-usr-pin').disabled = false;
+  document.getElementById('new-usr-pin').placeholder = 'Ej. 4580';
+  document.getElementById('usr-sucursal').value = '';
   document.getElementById('usr-edit-id').value = '';
   document.getElementById('usr-rol').value = 'SUPERVISOR';
   document.querySelectorAll('.chk-perm-usr').forEach(cb => {
@@ -926,10 +1049,11 @@ function abrirModalNuevoUsuario() {
 function abrirModalEditarPermisos(usrId) {
   const u = currentUsuariosList.find(x => String(x.id) === String(usrId));
   if (!u) return;
-  document.getElementById('modal-usr-titulo').innerText = `Editar Permisos: ${u.nombre}`;
+  document.getElementById('modal-usr-titulo').innerText = `Editar Supervisor: ${u.nombre}`;
   document.getElementById('new-usr-nombre').value = u.nombre;
   document.getElementById('new-usr-pin').value = '';
-  document.getElementById('new-usr-pin').disabled = true;
+  document.getElementById('new-usr-pin').placeholder = 'Nuevo PIN (opcional)';
+  document.getElementById('usr-sucursal').value = (u.sucursalAsignada && u.sucursalAsignada !== 'TODAS') ? u.sucursalAsignada : '';
   document.getElementById('usr-rol').value = u.rol;
   document.getElementById('usr-edit-id').value = u.id;
   document.querySelectorAll('.chk-perm-usr').forEach(cb => {
@@ -942,13 +1066,21 @@ async function saveUsuario() {
   if (!puede('gestionar_supervisores')) return showToast('Sin permiso', 'error');
   const editId = document.getElementById('usr-edit-id').value;
   const permisos = Array.from(document.querySelectorAll('.chk-perm-usr:checked')).map(cb => cb.value);
-  
+  const sucursalAsignada = document.getElementById('usr-sucursal').value.trim() || 'TODAS';
+  const nombre = document.getElementById('new-usr-nombre').value.trim();
+  const pin = document.getElementById('new-usr-pin').value.trim();
+  const rol = document.getElementById('usr-rol').value;
+
   if (editId) {
-    toggleLoader(true, 'Actualizando permisos...');
-    const res = await runServer('apiUpdateUsuarioPermisos', {
+    toggleLoader(true, 'Actualizando supervisor...');
+    const res = await runServer('apiUpdateUsuario', {
       empresaId: currentEmpresa.empresaId,
       usuarioId: editId,
+      nombre,
+      pin,
+      rol,
       permisos,
+      sucursalAsignada,
       actualizadoPor: currentUser ? currentUser.id : 'RH'
     });
     toggleLoader(false);
@@ -960,17 +1092,17 @@ async function saveUsuario() {
     return;
   }
 
-  const payload = {
-    empresaId: currentEmpresa.empresaId,
-    nombre: document.getElementById('new-usr-nombre').value.trim(),
-    pin: document.getElementById('new-usr-pin').value.trim(),
-    rol: document.getElementById('usr-rol').value,
-    permisos: permisos,
-    creadoPor: currentUser ? currentUser.id : 'RH'
-  };
-  if (!payload.nombre || !payload.pin) return showToast('Nombre y PIN obligatorios', 'error');
+  if (!nombre || !pin) return showToast('Nombre y PIN obligatorios', 'error');
   toggleLoader(true, 'Creando supervisor...');
-  const res = await runServer('apiAddUsuario', payload);
+  const res = await runServer('apiAddUsuario', {
+    empresaId: currentEmpresa.empresaId,
+    nombre,
+    pin,
+    rol,
+    permisos,
+    sucursalAsignada,
+    creadoPor: currentUser ? currentUser.id : 'RH'
+  });
   toggleLoader(false);
   if (res.status === 'success') {
     showToast(res.message);
