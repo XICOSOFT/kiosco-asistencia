@@ -5,11 +5,32 @@ const API_URL = "https://script.google.com/macros/s/AKfycbwc5kuAuMLBvhdFk-IWgs5s
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js").catch(err => console.log("SW:", err));
+    navigator.serviceWorker.register("sw.js").then((reg) => {
+      const checkReady = () => {
+        const ind = document.getElementById("offline-ready-indicator");
+        if (ind) {
+          ind.innerText = "✅ Lista para operar 100% Sin Internet (Caché Offline Activo)";
+          ind.className = "text-[11px] font-extrabold text-emerald-700 bg-emerald-50 py-2 px-3 rounded-xl border border-emerald-200";
+        }
+      };
+      if (navigator.serviceWorker.controller) checkReady();
+      navigator.serviceWorker.addEventListener("controllerchange", checkReady);
+    }).catch(err => console.log("SW:", err));
   });
 }
 
-lucide.createIcons();
+// Auto-sincronizar registros offline en cuanto regrese el internet a la tablet
+window.addEventListener("online", () => {
+  actualizarBadgeRedKiosco();
+  const offlineData = JSON.parse(localStorage.getItem("offline_registros") || "[]");
+  if (offlineData.length > 0) {
+    showToast(`Señal recuperada. Sincronizando ${offlineData.length} registros...`, "success");
+    syncOffline();
+  }
+});
+window.addEventListener("offline", () => actualizarBadgeRedKiosco());
+
+if (typeof lucide !== "undefined") lucide.createIcons();
 let currentUser = null;
 let currentEmpresa = null;
 let currentReportData = [];
@@ -132,19 +153,23 @@ function toggleFullScreenKiosk() {
 }
 
 // ==========================================
-// ARRANQUE Y REDES NEURONALES
+// ARRANQUE Y REDES NEURONALES (ONLINE Y OFFLINE)
 // ==========================================
 window.onload = async () => { 
   updateOfflineUI(); 
-  runServer('apiInitDatabase', {}).catch(() => {}); 
-  try {
-    await Promise.all([
-      faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights'),
-      faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights'),
-      faceapi.nets.faceRecognitionNet.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights')
-    ]);
-    faceModelsLoaded = true;
-  } catch (err) { console.error("IA:", err); }
+  if (navigator.onLine) {
+    runServer('apiInitDatabase', {}).catch(() => {}); 
+  }
+  if (typeof faceapi !== "undefined") {
+    try {
+      await Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights'),
+        faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights'),
+        faceapi.nets.faceRecognitionNet.loadFromUri('https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights')
+      ]);
+      faceModelsLoaded = true;
+    } catch (err) { console.error("IA:", err); }
+  }
 };
 
 async function runServer(actionName, payloadData) {
@@ -183,7 +208,7 @@ function showView(viewId) {
     aplicarModulosKiosco(); 
     initKioskAI(); 
     startCamera(); 
-    lucide.createIcons();
+    if (typeof lucide !== "undefined") lucide.createIcons();
   } else { 
     stopCamera(); 
   }
@@ -229,12 +254,12 @@ function showToast(m, t = 'success') {
   d.className = `toast ${t === 'success' ? 'bg-green-600' : 'bg-red-600'} text-white px-4 py-3 rounded-lg font-bold flex items-center gap-2 mb-2 z-50 shadow-lg text-xs md:text-sm`; 
   d.innerHTML = `<i data-lucide="${t === 'success' ? 'check-circle' : 'alert-circle'}"></i> ${m}`; 
   c.appendChild(d); 
-  lucide.createIcons(); 
+  if (typeof lucide !== "undefined") lucide.createIcons(); 
   setTimeout(() => { d.style.opacity = '0'; setTimeout(() => d.remove(), 300); }, 3500); 
 }
 
 // ==========================================
-// CÁMARA CIRCULAR KIOSCO (IA FACIAL + LECTOR QR UNIFICADO)
+// CÁMARA CIRCULAR KIOSCO (IA FACIAL OFFLINE + LECTOR QR UNIFICADO)
 // ==========================================
 async function startCamera() {
   const video = document.getElementById('live-video');
@@ -283,6 +308,37 @@ function stopCamera() {
   if (videoStream) { videoStream.getTracks().forEach(track => track.stop()); videoStream = null; }
 }
 
+function cargarDescriptoresDesdeCacheLocal(statusEl, modoOffline) {
+  const cachedFaces = JSON.parse(localStorage.getItem('kiosco_face_descriptors') || '[]');
+  labeledFaceDescriptors = [];
+  if (typeof faceapi !== "undefined" && cachedFaces.length > 0) {
+    cachedFaces.forEach(item => {
+      try {
+        const arr = new Float32Array(item.descriptor);
+        labeledFaceDescriptors.push(new faceapi.LabeledFaceDescriptors(`${item.pin}|${item.nombre}`, [arr]));
+      } catch (e) {}
+    });
+  }
+  if (labeledFaceDescriptors.length > 0 && typeof faceapi !== "undefined") {
+    faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.55);
+    if (statusEl) {
+      statusEl.innerText = modoOffline
+        ? `🟠 Offline: IA Facial lista (${labeledFaceDescriptors.length} rostros en memoria)`
+        : `Acerca tu rostro dentro del círculo (${labeledFaceDescriptors.length} activos)`;
+      statusEl.className = modoOffline
+        ? "text-base md:text-lg text-amber-400 font-bold tracking-wide"
+        : "text-base md:text-lg text-emerald-400 font-bold tracking-wide";
+    }
+  } else if (statusEl) {
+    statusEl.innerText = modoOffline
+      ? "🟠 Modo Offline Activo: Usa tu Gafete QR o PIN"
+      : "IA Lista (Enrola rostros en el panel RH)";
+    statusEl.className = modoOffline
+      ? "text-base md:text-lg text-amber-400 font-bold tracking-wide"
+      : "text-base md:text-lg text-emerald-400 font-bold tracking-wide";
+  }
+}
+
 async function initKioskAI() {
   const statusEl = document.getElementById('kiosk-ai-status');
   if (!kioskEmpresa) return;
@@ -290,32 +346,31 @@ async function initKioskAI() {
     if (statusEl) statusEl.innerText = "Toca Escanear Gafete QR o Ingresar PIN";
     return;
   }
-  if (!navigator.onLine) {
-    if (statusEl) { statusEl.innerText = "Modo Offline Activo (Usa tu Gafete QR o PIN)"; statusEl.className = "text-base md:text-lg text-amber-400 font-bold tracking-wide"; }
-    return;
-  }
+
+  // Cargar inmediatamente desde memoria local para operación instantánea (Online u Offline)
+  cargarDescriptoresDesdeCacheLocal(statusEl, !navigator.onLine);
+
+  if (!navigator.onLine) return;
 
   try {
      const res = await runServer('apiGetEmpleados', kioskEmpresa.empresaId);
-     labeledFaceDescriptors = [];
+     const facesParaGuardar = [];
      empleadosPinMap = {};
      for (let e of (res.data || [])) {
         if (e.estatus === 'ACTIVO') {
            empleadosPinMap[String(e.pin).trim()] = e.nombre;
            if (e.mapaFacial) {
-              const arr = new Float32Array(JSON.parse(e.mapaFacial));
-              labeledFaceDescriptors.push(new faceapi.LabeledFaceDescriptors(`${e.pin}|${e.nombre}`, [arr])); 
+              facesParaGuardar.push({
+                pin: String(e.pin).trim(),
+                nombre: e.nombre,
+                descriptor: JSON.parse(e.mapaFacial)
+              });
            }
         }
      }
      localStorage.setItem('kiosco_pin_map', JSON.stringify(empleadosPinMap));
-
-     if (labeledFaceDescriptors.length > 0) {
-        faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.55);
-        if (statusEl) { statusEl.innerText = `Acerca tu rostro dentro del círculo (${labeledFaceDescriptors.length} activos)`; statusEl.className = 'text-base md:text-lg text-emerald-400 font-bold tracking-wide'; }
-     } else {
-        if (statusEl) { statusEl.innerText = "IA Lista (Enrola rostros en el panel RH)"; }
-     }
+     localStorage.setItem('kiosco_face_descriptors', JSON.stringify(facesParaGuardar));
+     cargarDescriptoresDesdeCacheLocal(statusEl, false);
   } catch (e) {}
 }
 
@@ -410,6 +465,7 @@ function detenerEscaneoQR() {
 async function loginAdmin() {
   const pin = document.getElementById('admin-pin').value;
   if (!pin) return showToast('Ingresa PIN', 'error');
+  if (!navigator.onLine) return showToast('El Panel Administrativo requiere conexión a internet', 'error');
   
   toggleLoader(true, 'Autenticando...');
   try {
@@ -602,7 +658,7 @@ function renderReportTable(data) {
         <td class="p-2.5">${row.estatusGeo === 'ALERTA_GEO' ? '<span class="bg-red-100 text-red-800 px-2 py-0.5 rounded font-bold text-[10px]">Fuera de Obra</span>' : (row.entrada !== '--' ? '<span class="text-green-600 font-bold text-[10px]">En Geocerca</span>' : '')}${linkMapa}${btnJustificar}</td>
       </tr>`;
     }).join('');
-    setTimeout(() => lucide.createIcons(), 50);
+    setTimeout(() => { if (typeof lucide !== "undefined") lucide.createIcons(); }, 50);
   }
 }
 
@@ -661,7 +717,7 @@ function abrirModalFestivoGlobal() {
   }
 
   document.getElementById('modal-festivo-global').classList.remove('hidden');
-  lucide.createIcons();
+  if (typeof lucide !== "undefined") lucide.createIcons();
 }
 
 async function ejecutarFestivoGlobal() {
@@ -844,10 +900,19 @@ async function loadEmpleados() {
     currentEmpleadosData = rawData;
     
     empleadosPinMap = {};
+    const facesParaGuardar = [];
     currentEmpleadosData.forEach(e => {
-      if (e.estatus === 'ACTIVO') empleadosPinMap[String(e.pin).trim()] = e.nombre;
+      if (e.estatus === 'ACTIVO') {
+        empleadosPinMap[String(e.pin).trim()] = e.nombre;
+        if (e.mapaFacial) {
+          try {
+            facesParaGuardar.push({ pin: String(e.pin).trim(), nombre: e.nombre, descriptor: JSON.parse(e.mapaFacial) });
+          } catch (err) {}
+        }
+      }
     });
     localStorage.setItem('kiosco_pin_map', JSON.stringify(empleadosPinMap));
+    localStorage.setItem('kiosco_face_descriptors', JSON.stringify(facesParaGuardar));
 
     actualizarSelectoresSucursales(currentEmpleadosData);
     filterEmpleadosTable();
@@ -890,7 +955,7 @@ function filterEmpleadosTable() {
       </td>
     </tr>
   `).join('') : '<tr><td colspan="7" class="p-6 text-center text-gray-500">Sin colaboradores registrados.</td></tr>';
-  lucide.createIcons();
+  if (typeof lucide !== "undefined") lucide.createIcons();
 }
 
 function abrirModalNuevoEmpleado() {
@@ -975,7 +1040,7 @@ function verGafeteQR(empId) {
   document.getElementById('gafete-pin').innerText = `PIN: ${emp.pin}`;
   document.getElementById('gafete-qr-img').src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(emp.pin)}`;
   document.getElementById('modal-gafete').classList.remove('hidden');
-  lucide.createIcons();
+  if (typeof lucide !== "undefined") lucide.createIcons();
 }
 
 function verCartaAcuerdoLFT(empId) {
@@ -992,7 +1057,7 @@ function verCartaAcuerdoLFT(empId) {
   document.getElementById('acuerdo-firma-emp').innerText = emp.nombre;
   document.getElementById('acuerdo-firma-cia').innerText = currentEmpresa.nombre;
   document.getElementById('modal-acuerdo-lft').classList.remove('hidden');
-  lucide.createIcons();
+  if (typeof lucide !== "undefined") lucide.createIcons();
 }
 
 async function toggleEstatus(id, newStatus) { 
@@ -1026,7 +1091,7 @@ async function loadUsuarios() {
         </td>
       </tr>
     `).join('') : '<tr><td colspan="4" class="p-6 text-center text-gray-500">Sin supervisores registrados.</td></tr>';
-    lucide.createIcons();
+    if (typeof lucide !== "undefined") lucide.createIcons();
   } catch (e) {}
   toggleLoader(false);
 }
@@ -1422,7 +1487,7 @@ function renderLayoutsGrid() {
       </div>
     `;
   }).join('');
-  setTimeout(() => lucide.createIcons(), 50);
+  setTimeout(() => { if (typeof lucide !== "undefined") lucide.createIcons(); }, 50);
 }
 
 function abrirModalLayoutNuevo() {
@@ -1868,7 +1933,11 @@ function resetKiosk() {
   if (manualBox) manualBox.classList.add('hidden');
   const statusEl = document.getElementById('kiosk-ai-status');
   if (statusEl && tieneModulo(kioskEmpresa, 'BIOMETRIA_IA')) {
-    statusEl.innerText = "Acerca tu rostro dentro del círculo";
-    statusEl.className = "text-base md:text-lg text-emerald-400 font-bold tracking-wide";
+    statusEl.innerText = navigator.onLine
+      ? "Acerca tu rostro dentro del círculo"
+      : "🟠 Modo Offline: Acerca tu rostro, QR o PIN";
+    statusEl.className = navigator.onLine
+      ? "text-base md:text-lg text-emerald-400 font-bold tracking-wide"
+      : "text-base md:text-lg text-amber-400 font-bold tracking-wide";
   }
 }
