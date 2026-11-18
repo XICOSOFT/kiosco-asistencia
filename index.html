@@ -47,13 +47,16 @@
       <i data-lucide="shield-check" class="w-10 h-10"></i>
     </div>
     <h1 class="text-2xl md:text-3xl font-black mb-1 text-gray-900">PORTAL DE ASISTENCIA</h1>
-    <p class="text-xs md:text-sm text-gray-500 mb-8 font-semibold">Cumplimiento STPS • Reforma LFT 2027 • Pre-Nómina</p>
-    <button onclick="showView('view-kiosk')" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-5 rounded-2xl font-extrabold text-lg flex justify-center items-center gap-3 mb-4 shadow-xl transition">
+    <p class="text-xs md:text-sm text-gray-500 mb-6 font-semibold">Cumplimiento STPS • Reforma LFT 2027 • Pre-Nómina</p>
+    <button onclick="showView('view-kiosk')" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-5 rounded-2xl font-extrabold text-lg flex justify-center items-center gap-3 mb-3 shadow-xl transition">
       <i data-lucide="monitor-smartphone" class="w-6 h-6"></i> Abrir Kiosco Checador
     </button>
-    <button onclick="showView('view-admin')" class="w-full bg-gray-900 hover:bg-gray-800 text-white py-4 rounded-2xl font-bold text-base flex justify-center items-center gap-2 shadow transition">
+    <button onclick="showView('view-admin')" class="w-full bg-gray-900 hover:bg-gray-800 text-white py-4 rounded-2xl font-bold text-base flex justify-center items-center gap-2 mb-4 shadow transition">
       <i data-lucide="lock" class="w-5 h-5"></i> Acceso Administradores RH
     </button>
+    <div id="offline-ready-indicator" class="text-[11px] font-bold text-slate-500 bg-slate-100 py-2 px-3 rounded-xl border border-slate-200">
+      ⏳ Verificando disponibilidad sin conexión...
+    </div>
   </div>
 
   <!-- VISTA 2: Login Administradores / Supervisores -->
@@ -65,7 +68,7 @@
     <button onclick="loginAdmin()" class="w-full bg-gray-900 hover:bg-gray-800 text-white py-4 rounded-2xl font-extrabold text-base shadow-lg">Autenticar</button>
   </div>
 
-  <!-- VISTA 3: Kiosco Operativo FULLSCREEN 100% (Borde a Borde en Galaxy Tab Vertical y Horizontal) -->
+  <!-- VISTA 3: Kiosco Operativo FULLSCREEN 100% -->
   <div id="view-kiosk" class="bg-slate-950 text-white w-screen h-[100dvh] fixed inset-0 z-40 hidden flex-col justify-between p-6 md:p-10 select-none overflow-hidden">
     
     <!-- Barra Superior del Kiosco -->
@@ -94,7 +97,7 @@
       <button onclick="syncOffline()" class="bg-amber-500 text-slate-950 px-4 py-1 rounded-xl font-extrabold hover:bg-amber-400">Sincronizar Ahora</button>
     </div>
 
-    <!-- CUERPO CENTRAL EXPANSIVO (Adaptable a Vertical u Horizontal) -->
+    <!-- CUERPO CENTRAL EXPANSIVO -->
     <div class="flex-1 flex flex-col landscape:flex-row items-center justify-evenly gap-6 w-full max-w-6xl mx-auto my-auto overflow-hidden">
       
       <!-- BLOQUE 1: Reloj Gigante + Saludo + Visor Circular Grande -->
@@ -175,7 +178,7 @@
     </div>
   </div>
 
-  <!-- VISTA 4: Dashboard RH / Supervisores (Fullscreen Borde a Borde) -->
+  <!-- VISTA 4: Dashboard RH / Supervisores -->
   <div id="view-dashboard" class="bg-white w-screen h-[100dvh] fixed inset-0 z-30 hidden flex-col overflow-hidden">
     
     <!-- Barra Superior Fija -->
@@ -413,7 +416,7 @@
     </div>
   </div>
 
-  <!-- VISTA 5: Super Admin Pro (Fullscreen Borde a Borde) -->
+  <!-- VISTA 5: Super Admin Pro -->
   <div id="view-superadmin" class="bg-white w-screen h-[100dvh] fixed inset-0 z-30 hidden flex-col overflow-hidden border-t-8 border-purple-600">
     <div class="bg-gray-900 text-white px-5 py-3 flex justify-between items-center shrink-0">
       <div>
@@ -825,6 +828,6 @@
   </div>
 
   <div id="toast-container" class="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2"></div>
-  <script src="app.js?v=2027.10"></script>
+  <script src="app.js?v=2027.11"></script>
 </body>
 </html>
