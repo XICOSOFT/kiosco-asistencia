@@ -5,7 +5,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbwc5kuAuMLBvhdFk-IWgs5s
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js").then((reg) => {
+    navigator.serviceWorker.register("sw.js").then(() => {
       const checkReady = () => {
         const ind = document.getElementById("offline-ready-indicator");
         if (ind) {
@@ -19,7 +19,6 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-// Auto-sincronizar registros offline en cuanto regrese el internet a la tablet
 window.addEventListener("online", () => {
   actualizarBadgeRedKiosco();
   const offlineData = JSON.parse(localStorage.getItem("offline_registros") || "[]");
@@ -34,6 +33,8 @@ if (typeof lucide !== "undefined") lucide.createIcons();
 let currentUser = null;
 let currentEmpresa = null;
 let currentReportData = [];
+let currentAnalyticsData = [];
+let chartInstances = { dist: null, tend: null, suc: null, top: null };
 let currentEmpleadosData = [];
 let currentEmpresasList = [];
 let currentUsuariosList = [];
@@ -44,7 +45,7 @@ let selectedIncidenciaTarget = null;
 let pendingConsent = null;
 let currentConsentText = "";
 
-// Biometría IA y Escáner QR en el mismo Visor Circular
+// Biometría IA y Escáner QR
 let faceModelsLoaded = false;
 let kioskEmpresa = JSON.parse(localStorage.getItem('kiosco_empresa') || 'null');
 let empleadosPinMap = JSON.parse(localStorage.getItem('kiosco_pin_map') || '{}');
@@ -65,7 +66,6 @@ let currentLayoutSistema = null;
 let currentExportSistema = null;
 let currentMuestraLayoutData = null;
 
-// Reloj en vivo y estado de red en tiempo real para el Kiosco
 setInterval(() => {
   const clk = document.getElementById('live-clock');
   if (clk) clk.innerText = new Date().toLocaleTimeString('es-MX', { hour12: false });
@@ -84,7 +84,6 @@ function actualizarBadgeRedKiosco() {
   }
 }
 
-// Síntesis de Voz (Audio Feedback)
 function hablarKiosco(texto) {
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
@@ -153,7 +152,7 @@ function toggleFullScreenKiosk() {
 }
 
 // ==========================================
-// ARRANQUE Y REDES NEURONALES (ONLINE Y OFFLINE)
+// ARRANQUE Y REDES NEURONALES
 // ==========================================
 window.onload = async () => { 
   updateOfflineUI(); 
@@ -259,7 +258,7 @@ function showToast(m, t = 'success') {
 }
 
 // ==========================================
-// CÁMARA CIRCULAR KIOSCO (IA FACIAL OFFLINE + LECTOR QR UNIFICADO)
+// CÁMARA CIRCULAR KIOSCO (IA FACIAL OFFLINE + LECTOR QR)
 // ==========================================
 async function startCamera() {
   const video = document.getElementById('live-video');
@@ -347,9 +346,7 @@ async function initKioskAI() {
     return;
   }
 
-  // Cargar inmediatamente desde memoria local para operación instantánea (Online u Offline)
   cargarDescriptoresDesdeCacheLocal(statusEl, !navigator.onLine);
-
   if (!navigator.onLine) return;
 
   try {
@@ -460,7 +457,7 @@ function detenerEscaneoQR() {
 }
 
 // ==========================================
-// SESIÓN DE ADMINISTRADORES, SUPERVISORES POR OBRA Y PERMISOS
+// SESIÓN DE ADMINISTRADORES, SUPERVISORES Y PERMISOS
 // ==========================================
 async function loginAdmin() {
   const pin = document.getElementById('admin-pin').value;
@@ -499,9 +496,13 @@ async function loginAdmin() {
           : '';
         document.getElementById('empresa-name').innerText = `RH: ${currentEmpresa.nombre} (${currentUser.rol}${badgeObra})`;
         document.getElementById('empresa-modulos-badges').innerText = `Módulos LFT 2027: ${currentEmpresa.modulos || 'COMPLETO'}`;
+        
         const hoy = new Date().toISOString().split('T')[0]; 
+        const hace7Dias = new Date(Date.now() - 6 * 86400000).toISOString().split('T')[0];
         document.getElementById('date-start').value = hoy; 
         document.getElementById('date-end').value = hoy;
+        document.getElementById('ana-date-start').value = hace7Dias;
+        document.getElementById('ana-date-end').value = hoy;
         
         aplicarPermisosUI();
         showView('view-dashboard');
@@ -548,6 +549,7 @@ function aplicarPermisosUI() {
 function logoutAdmin() { 
   currentEmpresa = null; 
   currentReportData = []; 
+  currentAnalyticsData = [];
   currentUser = null;
   currentUsuariosList = [];
   currentLayoutsData = {};
@@ -556,7 +558,7 @@ function logoutAdmin() {
 }
 
 function switchRHTab(tabId) {
-  ['prenomina', 'empleados', 'usuarios', 'layouts', 'config'].forEach(t => {
+  ['prenomina', 'analitica', 'empleados', 'usuarios', 'layouts', 'config'].forEach(t => {
     const panel = document.getElementById('tab-' + t);
     const btn = document.getElementById('tab-btn-' + t);
     if (panel) panel.classList.add('hidden');
@@ -574,10 +576,292 @@ function switchRHTab(tabId) {
     targetBtn.classList.replace('text-gray-400', 'text-white');
   }
   
+  if (tabId === 'analitica') cargarDatosAnalitica();
   if (tabId === 'empleados' && puede('gestionar_empleados')) loadEmpleados();
   if (tabId === 'usuarios' && puede('gestionar_supervisores')) loadUsuarios();
   if (tabId === 'layouts') loadLayouts();
   if (tabId === 'config') loadTurnosYSucursales();
+  if (typeof lucide !== "undefined") lucide.createIcons();
+}
+
+// ==========================================
+// DASHBOARD ANALÍTICO DE INCIDENCIAS + EXPORTACIÓN A PDF
+// ==========================================
+async function cargarDatosAnalitica() {
+  if (!currentEmpresa) return;
+  const s = document.getElementById('ana-date-start').value;
+  const e = document.getElementById('ana-date-end').value;
+  if (!s || !e) return showToast('Selecciona ambas fechas para graficar', 'error');
+
+  const sucAsignada = (currentUser && currentUser.sucursalAsignada && currentUser.sucursalAsignada !== 'TODAS')
+    ? currentUser.sucursalAsignada
+    : 'TODAS';
+
+  toggleLoader(true, 'Generando analítica ejecutiva...');
+  try {
+    const res = await runServer('apiGetReports', {
+      empresaId: currentEmpresa.empresaId,
+      fechaInicio: s,
+      fechaFin: e,
+      sucursalFiltro: sucAsignada
+    });
+    currentAnalyticsData = res.data || [];
+
+    const selAnaSuc = document.getElementById('ana-sucursal');
+    if (selAnaSuc) {
+      if (sucAsignada !== 'TODAS') {
+        selAnaSuc.innerHTML = `<option value="${escapeHtml(sucAsignada)}">${escapeHtml(sucAsignada)} (Obra Asignada)</option>`;
+        selAnaSuc.disabled = true;
+      } else {
+        const valorPrevio = selAnaSuc.value;
+        const sucs = [...new Set(currentAnalyticsData.map(r => r.sucursal || 'Matriz'))].sort();
+        selAnaSuc.innerHTML = '<option value="TODAS">Todas las Obras / Sucursales</option>' +
+          sucs.map(sc => `<option value="${escapeHtml(sc)}">${escapeHtml(sc)}</option>`).join('');
+        if (sucs.includes(valorPrevio)) selAnaSuc.value = valorPrevio;
+        selAnaSuc.disabled = false;
+      }
+    }
+
+    renderAnalyticsCharts();
+  } catch (err) {
+    showToast('Error al cargar datos de analítica', 'error');
+  }
+  toggleLoader(false);
+}
+
+function clasificarRegistroAnalitica(row) {
+  const inc = String(row.incidencia || '').toUpperCase();
+  if (inc === 'VACACIONES') return 'VACACIONES';
+  if (inc === 'INCAPACIDAD_IMSS') return 'IMSS';
+  if (inc === 'DIA_FESTIVO_OFICIAL' || inc === 'DESCANSO' || inc === 'SUSPENSION_OBRA') return 'FESTIVO';
+  if (inc.startsWith('PERMISO')) return 'PERMISO';
+  if (inc) return 'PERMISO';
+  if (row.entrada === '--') return 'FALTA';
+  if (row.retardo) return 'RETARDO';
+  return 'PUNTUAL';
+}
+
+function renderAnalyticsCharts() {
+  if (typeof Chart === 'undefined') return showToast('Librería de gráficos cargando...', 'error');
+
+  const s = document.getElementById('ana-date-start').value;
+  const e = document.getElementById('ana-date-end').value;
+  const sucFiltro = document.getElementById('ana-sucursal').value;
+  const enfoque = document.getElementById('ana-filtro-tipo').value;
+
+  const filtrados = currentAnalyticsData.filter(r => {
+    return (sucFiltro === 'TODAS') || ((r.sucursal || 'Matriz') === sucFiltro);
+  });
+
+  // Actualizar encabezados del reporte
+  document.getElementById('ana-report-title').innerText = `${currentEmpresa.nombre} — Indicadores de Incidencias de Nómina`;
+  document.getElementById('ana-report-subtitle').innerText = `Periodo: ${s} al ${e}  |  Centro de Trabajo: ${sucFiltro === 'TODAS' ? 'Todas las Obras / Sucursales' : sucFiltro}  |  Total Jornadas Evaluadas: ${filtrados.length}`;
+
+  let cPuntual = 0, cRetardo = 0, cFalta = 0, cVacaciones = 0, cImss = 0, cPermisoFestivo = 0;
+  const porFecha = {};
+  const porSucursal = {};
+  const porEmpleado = {};
+
+  filtrados.forEach(r => {
+    const cat = clasificarRegistroAnalitica(r);
+    if (cat === 'PUNTUAL') cPuntual++;
+    else if (cat === 'RETARDO') cRetardo++;
+    else if (cat === 'FALTA') cFalta++;
+    else if (cat === 'VACACIONES') cVacaciones++;
+    else if (cat === 'IMSS') cImss++;
+    else cPermisoFestivo++;
+
+    // Agrupación por Fecha
+    if (!porFecha[r.fecha]) porFecha[r.fecha] = { puntual: 0, retardo: 0, falta: 0, permiso: 0 };
+    if (cat === 'PUNTUAL') porFecha[r.fecha].puntual++;
+    else if (cat === 'RETARDO') porFecha[r.fecha].retardo++;
+    else if (cat === 'FALTA') porFecha[r.fecha].falta++;
+    else porFecha[r.fecha].permiso++;
+
+    // Agrupación por Sucursal
+    const sucName = r.sucursal || 'Matriz';
+    if (!porSucursal[sucName]) porSucursal[sucName] = { faltas: 0, retardos: 0, permisos: 0 };
+    if (cat === 'FALTA') porSucursal[sucName].faltas++;
+    if (cat === 'RETARDO') porSucursal[sucName].retardos++;
+    if (cat === 'VACACIONES' || cat === 'IMSS' || cat === 'PERMISO') porSucursal[sucName].permisos++;
+
+    // Agrupación por Empleado (Faltas + Retardos)
+    if (cat === 'FALTA' || cat === 'RETARDO') {
+      if (!porEmpleado[r.empleado]) porEmpleado[r.empleado] = { faltas: 0, retardos: 0, total: 0 };
+      if (cat === 'FALTA') porEmpleado[r.empleado].faltas++;
+      if (cat === 'RETARDO') porEmpleado[r.empleado].retardos++;
+      porEmpleado[r.empleado].total++;
+    }
+  });
+
+  // Actualizar Tarjetas KPI
+  document.getElementById('ana-kpi-puntual').innerText = cPuntual;
+  document.getElementById('ana-kpi-retardos').innerText = cRetardo;
+  document.getElementById('ana-kpi-faltas').innerText = cFalta;
+  document.getElementById('ana-kpi-vacaciones').innerText = cVacaciones;
+  document.getElementById('ana-kpi-imss').innerText = cImss;
+  document.getElementById('ana-kpi-permisos').innerText = cPermisoFestivo;
+
+  const jornadasLaborables = cPuntual + cRetardo + cFalta;
+  const tasa = jornadasLaborables > 0 ? Math.round(((cPuntual + cRetardo) / jornadasLaborables) * 100) : 100;
+  document.getElementById('ana-tasa-cumplimiento').innerText = `${tasa}%`;
+
+  // Destruir instancias previas
+  Object.keys(chartInstances).forEach(k => {
+    if (chartInstances[k]) { chartInstances[k].destroy(); chartInstances[k] = null; }
+  });
+
+  // 1. GRÁFICO DE DONA: Distribución según enfoque seleccionado
+  let donutLabels = [], donutData = [], donutColors = [];
+  if (enfoque === 'SOLO_INCIDENCIAS') {
+    donutLabels = ['Retardos', 'Faltas Injustif.', 'Vacaciones', 'Incapacidad IMSS', 'Permisos / Festivos'];
+    donutData = [cRetardo, cFalta, cVacaciones, cImss, cPermisoFestivo];
+    donutColors = ['#f59e0b', '#e11d48', '#0ea5e9', '#9333ea', '#6366f1'];
+  } else if (enfoque === 'SOLO_AUSENTISMO') {
+    donutLabels = ['Faltas Injustif.', 'Vacaciones', 'Incapacidad IMSS', 'Permisos / Festivos'];
+    donutData = [cFalta, cVacaciones, cImss, cPermisoFestivo];
+    donutColors = ['#e11d48', '#0ea5e9', '#9333ea', '#6366f1'];
+  } else {
+    donutLabels = ['Asist. Puntual', 'Retardos', 'Faltas Injustif.', 'Vacaciones', 'Incapacidad IMSS', 'Permisos / Festivos'];
+    donutData = [cPuntual, cRetardo, cFalta, cVacaciones, cImss, cPermisoFestivo];
+    donutColors = ['#10b981', '#f59e0b', '#e11d48', '#0ea5e9', '#9333ea', '#6366f1'];
+  }
+
+  chartInstances.dist = new Chart(document.getElementById('chart-distribucion'), {
+    type: 'doughnut',
+    data: {
+      labels: donutLabels,
+      datasets: [{ data: donutData, backgroundColor: donutColors, borderWidth: 2, borderColor: '#ffffff' }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11, weight: 'bold' } } } }
+    }
+  });
+
+  // 2. GRÁFICO DE TENDENCIA DIARIA
+  const fechasOrdenadas = Object.keys(porFecha).sort();
+  const datasetsTendencia = [];
+  if (enfoque === 'TODOS') {
+    datasetsTendencia.push({ label: 'Puntuales', data: fechasOrdenadas.map(f => porFecha[f].puntual), backgroundColor: '#10b981', borderRadius: 4 });
+  }
+  if (enfoque !== 'SOLO_AUSENTISMO') {
+    datasetsTendencia.push({ label: 'Retardos', data: fechasOrdenadas.map(f => porFecha[f].retardo), backgroundColor: '#f59e0b', borderRadius: 4 });
+  }
+  datasetsTendencia.push({ label: 'Faltas Injustif.', data: fechasOrdenadas.map(f => porFecha[f].falta), backgroundColor: '#e11d48', borderRadius: 4 });
+  datasetsTendencia.push({ label: 'Permisos / Vac. / IMSS', data: fechasOrdenadas.map(f => porFecha[f].permiso), backgroundColor: '#6366f1', borderRadius: 4 });
+
+  chartInstances.tend = new Chart(document.getElementById('chart-tendencia'), {
+    type: 'bar',
+    data: { labels: fechasOrdenadas, datasets: datasetsTendencia },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } },
+      plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } } }
+    }
+  });
+
+  // 3. GRÁFICO POR SUCURSAL / OBRA
+  const sucsLabels = Object.keys(porSucursal);
+  chartInstances.suc = new Chart(document.getElementById('chart-sucursales'), {
+    type: 'bar',
+    data: {
+      labels: sucsLabels.length ? sucsLabels : ['Sin datos'],
+      datasets: [
+        { label: 'Faltas Injustificadas', data: sucsLabels.map(sc => porSucursal[sc].faltas), backgroundColor: '#e11d48', borderRadius: 4 },
+        { label: 'Retardos', data: sucsLabels.map(sc => porSucursal[sc].retardos), backgroundColor: '#f59e0b', borderRadius: 4 },
+        { label: 'Permisos / Vacaciones', data: sucsLabels.map(sc => porSucursal[sc].permisos), backgroundColor: '#0ea5e9', borderRadius: 4 }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+      plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } } }
+    }
+  });
+
+  // 4. TOP COLABORADORES CON MAYOR ÍNDICE DE INCIDENCIAS
+  const topOrdenado = Object.entries(porEmpleado)
+    .sort((a, b) => b[1].total - a[1].total)
+    .slice(0, 8);
+
+  chartInstances.top = new Chart(document.getElementById('chart-top-empleados'), {
+    type: 'bar',
+    data: {
+      labels: topOrdenado.length ? topOrdenado.map(x => x[0].split(' ').slice(0, 2).join(' ')) : ['Sin incidencias'],
+      datasets: [
+        { label: 'Faltas Injustif.', data: topOrdenado.map(x => x[1].faltas), backgroundColor: '#e11d48', borderRadius: 4 },
+        { label: 'Retardos', data: topOrdenado.map(x => x[1].retardos), backgroundColor: '#f59e0b', borderRadius: 4 }
+      ]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: { x: { stacked: true, beginAtZero: true, ticks: { precision: 0 } }, y: { stacked: true } },
+      plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } } }
+    }
+  });
+}
+
+async function exportarAnaliticaPDF() {
+  if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
+    return showToast('El generador PDF aún se está cargando, intenta en 2 segundos', 'error');
+  }
+  const area = document.getElementById('analytics-export-area');
+  if (!area) return;
+
+  toggleLoader(true, 'Generando Reporte Ejecutivo en PDF...');
+  const prevOverflow = area.style.overflow;
+  const prevHeight = area.style.height;
+  const prevMaxHeight = area.style.maxHeight;
+
+  try {
+    // Expandir temporalmente todo el contenedor para capturar los 4 gráficos completos sin corte de scroll
+    area.style.overflow = 'visible';
+    area.style.height = 'auto';
+    area.style.maxHeight = 'none';
+
+    await new Promise(r => setTimeout(r, 250));
+    const canvas = await html2canvas(area, { scale: 2, useCORS: true, backgroundColor: '#f8fafc' });
+    const imgData = canvas.toDataURL('image/png');
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 8;
+    const usableWidth = pageWidth - margin * 2;
+    const imgHeight = (canvas.height * usableWidth) / canvas.width;
+
+    let heightLeft = imgHeight;
+    let position = margin;
+
+    pdf.addImage(imgData, 'PNG', margin, position, usableWidth, imgHeight);
+    heightLeft -= (pageHeight - margin * 2);
+
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight + margin;
+      pdf.addPage();
+      pdf.addImage(imgData, 'PNG', margin, position, usableWidth, imgHeight);
+      heightLeft -= (pageHeight - margin * 2);
+    }
+
+    const s = document.getElementById('ana-date-start').value;
+    const e = document.getElementById('ana-date-end').value;
+    pdf.save(`Reporte_Incidencias_RH_${currentEmpresa.nombre.replace(/\s+/g, '_')}_${s}_a_${e}.pdf`);
+    showToast('Reporte PDF ejecutivo descargado', 'success');
+  } catch (err) {
+    showToast('Error al exportar PDF: ' + err.message, 'error');
+  } finally {
+    area.style.overflow = prevOverflow;
+    area.style.height = prevHeight;
+    area.style.maxHeight = prevMaxHeight;
+    toggleLoader(false);
+  }
 }
 
 // ==========================================
