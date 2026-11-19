@@ -15,6 +15,9 @@
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
   
   <style>
@@ -41,7 +44,7 @@
     <p class="font-bold text-lg tracking-wide" id="loader-text">Procesando...</p>
   </div>
 
-  <!-- VISTA 1: Menú Principal (Marca Blanca Adaptado para Tablet) -->
+  <!-- VISTA 1: Menú Principal -->
   <div id="view-menu" class="bg-white p-8 md:p-12 rounded-3xl shadow-2xl w-full max-w-lg text-center m-4 border-t-8 border-blue-600">
     <div class="inline-flex p-4 rounded-full bg-blue-50 text-blue-600 mb-4">
       <i data-lucide="shield-check" class="w-10 h-10"></i>
@@ -199,6 +202,9 @@
       </div>
       <div class="flex gap-5 text-xs md:text-sm overflow-x-auto">
         <button id="tab-btn-prenomina" onclick="switchRHTab('prenomina')" class="pb-1.5 font-bold border-b-4 border-blue-400 text-white whitespace-nowrap">Pre-Nómina STPS 2027</button>
+        <button id="tab-btn-analitica" onclick="switchRHTab('analitica')" class="pb-1.5 font-bold border-b-4 border-transparent text-gray-400 hover:text-white whitespace-nowrap flex items-center gap-1.5">
+          <i data-lucide="bar-chart-3" class="w-4 h-4 text-emerald-400"></i> Analítica y Gráficos PDF
+        </button>
         <button id="tab-btn-empleados" onclick="switchRHTab('empleados')" class="pb-1.5 font-bold border-b-4 border-transparent text-gray-400 hover:text-white whitespace-nowrap">Expedientes y Acuerdos</button>
         <button id="tab-btn-usuarios" onclick="switchRHTab('usuarios')" class="pb-1.5 font-bold border-b-4 border-transparent text-gray-400 hover:text-white whitespace-nowrap">Supervisores y Permisos</button>
         <button id="tab-btn-layouts" onclick="switchRHTab('layouts')" class="pb-1.5 font-bold border-b-4 border-transparent text-gray-400 hover:text-white whitespace-nowrap">Layouts Nómina</button>
@@ -279,6 +285,128 @@
             <tr><td colspan="8" class="p-6 text-center text-gray-500">Selecciona fechas y presiona Consultar.</td></tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- TAB NUEVO: ANALÍTICA EJECUTIVA E INDICADORES DE NÓMINA + EXPORTACIÓN PDF -->
+    <div id="tab-analitica" class="flex-1 flex flex-col min-h-0 overflow-hidden hidden bg-slate-50">
+      
+      <!-- Barra de Controles y Filtros del Dashboard Gráfico -->
+      <div class="p-3 bg-white border-b flex flex-wrap gap-2.5 items-end shrink-0 text-xs shadow-sm">
+        <div>
+          <label class="block font-bold text-gray-600">Fecha Inicio</label>
+          <input type="date" id="ana-date-start" class="border rounded-lg px-2.5 py-1.5 bg-gray-50 font-semibold">
+        </div>
+        <div>
+          <label class="block font-bold text-gray-600">Fecha Fin</label>
+          <input type="date" id="ana-date-end" class="border rounded-lg px-2.5 py-1.5 bg-gray-50 font-semibold">
+        </div>
+        <div>
+          <label class="block font-bold text-gray-600">Sucursal / Obra</label>
+          <select id="ana-sucursal" onchange="renderAnalyticsCharts()" class="border rounded-lg px-2.5 py-1.5 bg-gray-50 font-semibold">
+            <option value="TODAS">Todas las Obras / Sucursales</option>
+          </select>
+        </div>
+        <div>
+          <label class="block font-bold text-gray-600">Enfoque del Gráfico</label>
+          <select id="ana-filtro-tipo" onchange="renderAnalyticsCharts()" class="border rounded-lg px-2.5 py-1.5 bg-gray-50 font-semibold">
+            <option value="TODOS">Todos los Indicadores</option>
+            <option value="SOLO_INCIDENCIAS">Solo Incidencias (Faltas, Retardos, Permisos)</option>
+            <option value="SOLO_AUSENTISMO">Solo Ausentismo (Faltas, Vacaciones, IMSS)</option>
+          </select>
+        </div>
+        <div class="flex gap-2 ml-auto">
+          <button onclick="cargarDatosAnalitica()" class="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-lg font-bold flex items-center gap-1.5 shadow">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Actualizar Gráficos
+          </button>
+          <button onclick="exportarAnaliticaPDF()" class="bg-rose-600 hover:bg-rose-700 text-white px-4 py-1.5 rounded-lg font-extrabold flex items-center gap-1.5 shadow">
+            <i data-lucide="file-down" class="w-4 h-4"></i> Exportar Reporte PDF
+          </button>
+        </div>
+      </div>
+
+      <!-- Área Exportable a PDF -->
+      <div id="analytics-export-area" class="flex-1 min-h-0 scroll-area p-4 md:p-6 space-y-5 bg-slate-50">
+        
+        <!-- Encabezado Ejecutivo del Reporte -->
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap justify-between items-center gap-2">
+          <div>
+            <span class="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full">Reporte Ejecutivo de Capital Humano • LFT 2027</span>
+            <h3 id="ana-report-title" class="text-lg md:text-xl font-black text-slate-900 mt-1">Indicadores de Asistencia e Incidencias de Nómina</h3>
+            <p id="ana-report-subtitle" class="text-xs text-slate-500 font-medium">Selecciona un rango de fechas y presiona Actualizar Gráficos</p>
+          </div>
+          <div class="text-right">
+            <p class="text-[11px] font-bold text-slate-400 uppercase">Tasa de Cumplimiento</p>
+            <p id="ana-tasa-cumplimiento" class="text-2xl md:text-3xl font-black text-emerald-600">0%</p>
+          </div>
+        </div>
+
+        <!-- 6 Tarjetas KPI Detalladas -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-center">
+          <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm border-b-4 border-b-emerald-500">
+            <p class="text-[10px] font-bold text-slate-500 uppercase">Asist. Puntuales</p>
+            <p id="ana-kpi-puntual" class="text-xl font-black text-emerald-600 mt-0.5">0</p>
+          </div>
+          <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm border-b-4 border-b-amber-500">
+            <p class="text-[10px] font-bold text-slate-500 uppercase">Retardos</p>
+            <p id="ana-kpi-retardos" class="text-xl font-black text-amber-600 mt-0.5">0</p>
+          </div>
+          <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm border-b-4 border-b-rose-600">
+            <p class="text-[10px] font-bold text-slate-500 uppercase">Faltas Injustif.</p>
+            <p id="ana-kpi-faltas" class="text-xl font-black text-rose-600 mt-0.5">0</p>
+          </div>
+          <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm border-b-4 border-b-sky-500">
+            <p class="text-[10px] font-bold text-slate-500 uppercase">Vacaciones</p>
+            <p id="ana-kpi-vacaciones" class="text-xl font-black text-sky-600 mt-0.5">0</p>
+          </div>
+          <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm border-b-4 border-b-purple-500">
+            <p class="text-[10px] font-bold text-slate-500 uppercase">Incapacidad IMSS</p>
+            <p id="ana-kpi-imss" class="text-xl font-black text-purple-600 mt-0.5">0</p>
+          </div>
+          <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm border-b-4 border-b-indigo-500">
+            <p class="text-[10px] font-bold text-slate-500 uppercase">Permisos / Festivos</p>
+            <p id="ana-kpi-permisos" class="text-xl font-black text-indigo-600 mt-0.5">0</p>
+          </div>
+        </div>
+
+        <!-- Fila 1 de Gráficos: Dona de Distribución + Tendencia Diaria -->
+        <div class="grid md:grid-cols-12 gap-4">
+          <div class="md:col-span-5 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
+            <h4 class="font-extrabold text-sm text-slate-800 mb-1">Distribución de Incidencias</h4>
+            <p class="text-[11px] text-slate-400 mb-3">Proporción porcentual sobre el total de jornadas</p>
+            <div class="relative h-64 w-full flex items-center justify-center">
+              <canvas id="chart-distribucion"></canvas>
+            </div>
+          </div>
+
+          <div class="md:col-span-7 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
+            <h4 class="font-extrabold text-sm text-slate-800 mb-1">Comportamiento Diario en el Periodo</h4>
+            <p class="text-[11px] text-slate-400 mb-3">Evolución diaria de puntualidad, retardos, faltas y permisos</p>
+            <div class="relative h-64 w-full">
+              <canvas id="chart-tendencia"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fila 2 de Gráficos: Comparativa por Sucursal/Obra + Ranking Top Incidencias -->
+        <div class="grid md:grid-cols-12 gap-4 pb-6">
+          <div class="md:col-span-6 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
+            <h4 class="font-extrabold text-sm text-slate-800 mb-1">Comparativa por Sucursal / Obra</h4>
+            <p class="text-[11px] text-slate-400 mb-3">Faltas injustificadas vs. Retardos por centro de trabajo</p>
+            <div class="relative h-64 w-full">
+              <canvas id="chart-sucursales"></canvas>
+            </div>
+          </div>
+
+          <div class="md:col-span-6 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
+            <h4 class="font-extrabold text-sm text-slate-800 mb-1">Top Colaboradores con Mayor Índice de Incidencias</h4>
+            <p class="text-[11px] text-slate-400 mb-3">Suma de faltas injustificadas y retardos en el periodo</p>
+            <div class="relative h-64 w-full">
+              <canvas id="chart-top-empleados"></canvas>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -828,6 +956,6 @@
   </div>
 
   <div id="toast-container" class="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2"></div>
-  <script src="app.js?v=2027.11"></script>
+  <script src="app.js?v=2027.12"></script>
 </body>
 </html>
