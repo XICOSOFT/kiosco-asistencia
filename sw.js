@@ -1,19 +1,20 @@
-const CACHE_NAME = "kiosco-v11-offline-pro";
+const CACHE_NAME = "kiosco-v12-analytics";
 
-// Archivos críticos locales (siempre se instalan con éxito)
 const CORE_ASSETS = [
   "./",
   "./index.html",
-  "./app.js?v=2027.11",
+  "./app.js?v=2027.12",
   "./manifest.json"
 ];
 
-// Librerías y modelos de IA externos (se cachean individualmente sin abortar si uno tarda)
 const EXTERNAL_ASSETS = [
   "https://cdn.tailwindcss.com",
   "https://unpkg.com/lucide@latest",
   "https://unpkg.com/html5-qrcode",
   "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js",
+  "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js",
+  "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js",
+  "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js",
   "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js",
   "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights/tiny_face_detector_model-weights_manifest.json",
   "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights/tiny_face_detector_model-shard1",
@@ -27,9 +28,7 @@ const EXTERNAL_ASSETS = [
 self.addEventListener("install", (e) => {
   e.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
-      // 1. Garantizar caché local inmediato
       await cache.addAll(CORE_ASSETS);
-      // 2. Cachear externos uno por uno para que un fallo de red no rompa la instalación
       await Promise.allSettled(
         EXTERNAL_ASSETS.map(async (url) => {
           try {
@@ -37,7 +36,6 @@ self.addEventListener("install", (e) => {
             const res = await fetch(req);
             if (res && res.ok) await cache.put(url, res);
           } catch (err) {
-            // Intentar modo no-cors como respaldo para scripts CDN
             try {
               const resOpaque = await fetch(url, { mode: "no-cors" });
               if (resOpaque) await cache.put(url, resOpaque);
@@ -58,12 +56,10 @@ self.addEventListener("activate", (e) => {
 });
 
 self.addEventListener("fetch", (e) => {
-  // Nunca interceptar peticiones POST ni llamadas a Google Apps Script
   if (e.request.method !== "GET" || e.request.url.includes("script.google.com")) {
     return;
   }
 
-  // Navegación principal (abrir la PWA desde el ícono sin internet)
   if (e.request.mode === "navigate") {
     e.respondWith(
       caches.match("./index.html").then((cachedPage) => {
@@ -81,7 +77,6 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
-  // Cache-First con actualización dinámica para scripts, estilos y pesos neuronales
   e.respondWith(
     caches.match(e.request, { ignoreSearch: false }).then((cachedResponse) => {
       if (cachedResponse) return cachedResponse;
