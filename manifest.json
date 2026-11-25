@@ -1,17 +1,19 @@
 {
-  "name": "Kiosco Asistencia SaaS",
-  "short_name": "Kiosco RH",
-  "start_url": "./index.html",
-  "display": "standalone",
-  "background_color": "#f3f4f6",
-  "theme_color": "#1f2937",
-  "orientation": "portrait",
+  "name": "XICOSOFT · Kiosco de Asistencia LFT 2027",
+  "short_name": "XICOSOFT Kiosco",
+  "description": "Sistema Biométrico de Control de Asistencia y Pre-Nómina LFT 2027 por XICOSOFT",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#0A1628",
+  "theme_color": "#0A1628",
   "icons": [
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/3286/3286150.png",
+      "src": "./xicosoft.jpg",
       "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "type": "image/jpeg",
+      "purpose": "any"
     }
   ]
 }
