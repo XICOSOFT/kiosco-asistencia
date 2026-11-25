@@ -1,10 +1,12 @@
-const CACHE_NAME = "kiosco-v12-analytics";
+const CACHE_NAME = "kiosco-v13-xicosoft";
 
 const CORE_ASSETS = [
   "./",
   "./index.html",
   "./app.js?v=2027.12",
-  "./manifest.json"
+  "./manifest.json",
+  "./xicosoft.jpg",
+  "./xicosoft.gif"
 ];
 
 const EXTERNAL_ASSETS = [
